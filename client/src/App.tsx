@@ -11,6 +11,9 @@ import NewJournalEntry from './pages/NewJournalEntry';
 import ImportTransactions from './pages/ImportTransactions';
 import ReviewTransactions from './pages/ReviewTransactions';
 import BankTransactions from './pages/BankTransactions';
+import Customers from './pages/Customers';
+import NewCustomer from './pages/NewCustomer';
+import EditCustomer from './pages/EditCustomer';
 import ChatInterface from './components/ChatInterface';
 
 const queryClient = new QueryClient();
@@ -30,6 +33,9 @@ function App() {
             <Route path="journal-entries/new" element={<NewJournalEntry />} />
             <Route path="import" element={<ImportTransactions />} />
             <Route path="review" element={<ReviewTransactions />} />
+            <Route path="customers" element={<Customers />} />
+            <Route path="customers/new" element={<NewCustomer />} />
+            <Route path="customers/:id/edit" element={<EditCustomer />} />
             <Route path="transactions" element={<BankTransactions />} />
             <Route path="settings" element={<div>Settings Page</div>} />
           </Route>

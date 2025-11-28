@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { LayoutDashboard, FileText, BookOpen, Settings, Menu, Building2, Upload, CheckCircle, Database } from 'lucide-react';
+import { LayoutDashboard, FileText, BookOpen, Settings, Menu, Building2, Upload, CheckCircle, Database, Users } from 'lucide-react';
 import { useState } from 'react';
 import clsx from 'clsx';
 
@@ -10,6 +10,7 @@ export default function Layout() {
   const navigation = [
     { name: 'Dashboard', href: '/', icon: LayoutDashboard },
     { name: 'Invoices', href: '/invoices', icon: FileText },
+    { name: 'Customers', href: '/customers', icon: Users },
     { name: 'Banking', href: '/banking', icon: Building2 },
     { name: 'Journal Entries', href: '/journal-entries', icon: BookOpen },
     { name: 'Import', href: '/import', icon: Upload },
