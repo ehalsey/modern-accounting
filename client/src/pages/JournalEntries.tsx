@@ -9,7 +9,7 @@ interface JournalEntry {
   TransactionDate: string; // Was EntryDate
   Description: string;
   Status: string;
-  TotalAmount: number; // Derived or stored
+  TotalAmount: number;
 }
 
 export default function JournalEntries() {
@@ -17,7 +17,7 @@ export default function JournalEntries() {
   const { data: entries, isLoading, error } = useQuery({
     queryKey: ['journal-entries'],
     queryFn: async () => {
-      const response = await api.get<{ value: JournalEntry[] }>('/journal-entries');
+      const response = await api.get<{ value: JournalEntry[] }>('/journalentries');
       return response.data.value;
     },
   });

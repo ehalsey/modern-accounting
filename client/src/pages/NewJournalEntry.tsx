@@ -56,7 +56,7 @@ export default function NewJournalEntry() {
   const onSubmit = async (data: JournalEntryForm) => {
     try {
       // 1. Create Header
-      const headerResponse = await api.post('/journal-entries', {
+      const headerResponse = await api.post('/journalentries', {
         Reference: data.EntryNumber, // Map EntryNumber to Reference column
         TransactionDate: data.EntryDate, // Map to DB column
         Description: data.Description,
@@ -72,39 +72,18 @@ export default function NewJournalEntry() {
       }
 
       // 2. Create Lines
-      // Note: Ideally we'd use a transaction or batch endpoint. 
-      // For now, we loop. If one fails, we have partial data (MVP limitation).
       for (const line of data.Lines) {
-        await api.post('/journal-entry-lines', {
+        // Lookup Account ID by Code
+        const accountResponse = await api.get<{ value: any[] }>(`/accounts?$filter=Code eq '${line.AccountId}'`);
+        const account = accountResponse.data.value?.[0];
+        
+        if (!account) {
+          throw new Error(`Account code '${line.AccountId}' not found`);
+        }
+
+        await api.post('/journalentrylines', {
           JournalEntryId: journalEntryId,
-          AccountId: line.AccountId, // In a real app, this would be a GUID. For MVP, we might need to lookup or assume it's a GUID.
-          // Wait, the test sends '1000' which is NOT a GUID. 
-          // The SQL schema expects AccountId to be a UNIQUEIDENTIFIER (GUID).
-          // This will fail if we send '1000'.
-          // We need to either:
-          // a) Change schema to allow string AccountId (e.g. '1000')
-          // b) Lookup the GUID for '1000'
-          // c) Seed accounts with known GUIDs and use those in tests.
-          
-          // Let's assume for now we change the schema or the test to use a GUID.
-          // But wait, I defined AccountId as UNIQUEIDENTIFIER in JournalEntryLines.sql.
-          // And Accounts table has Id (GUID) and AccountNumber (String).
-          // The UI input is "AccountId" but user types "1000".
-          // We should probably look it up.
-          // For this MVP step, to make the test pass, I will temporarily generate a random GUID if it's not one, 
-          // OR I should update the test to use a real GUID. 
-          // But I don't know the real GUIDs without fetching.
-          
-          // QUICK FIX: I will update the SQL schema for JournalEntryLines to allow NVARCHAR for AccountId for now, 
-          // OR I will just generate a dummy GUID here if it's not one, just to make the insert work.
-          // Actually, the foreign key constraint was commented out in my SQL script:
-          // -- CONSTRAINT [FK_JournalEntryLines_Accounts] ...
-          // So it won't enforce FK. But the data type is UNIQUEIDENTIFIER.
-          // If I send '1000', SQL will error converting varchar to uniqueidentifier.
-          
-          // I should probably change the test to send a GUID.
-          // Let's generate a GUID in the test.
-          
+          AccountId: account.Id,
           Description: line.Description,
           Debit: line.Debit,
           Credit: line.Credit
@@ -178,7 +157,7 @@ export default function NewJournalEntry() {
                 <div className="flex-1">
                   <input
                     {...register(`Lines.${index}.AccountId`)}
-                    placeholder="Account ID"
+                    placeholder="Account Code"
                     className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm border p-2"
                   />
                 </div>

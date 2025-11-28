@@ -239,6 +239,29 @@
             "key-fields": [
                 "Id"
             ]
+        },
+        "journalentrylines": {
+            "source": "dbo.JournalEntryLines",
+            "permissions": [
+                {
+                    "role": "anonymous",
+                    "actions": [
+                        "*"
+                    ]
+                }
+            ],
+            "relationships": {
+                "JournalEntry": {
+                    "target.entity": "journalentries",
+                    "cardinality": "one",
+                    "source.fields": [
+                        "JournalEntryId"
+                    ],
+                    "target.fields": [
+                        "Id"
+                    ]
+                }
+            }
         }
     }
 }

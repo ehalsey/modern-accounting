@@ -42,3 +42,10 @@ const [invoice, lines] = await Promise.all([
 ### Entities backed by Views
 **Issue**: Entities backed by SQL Views (e.g., `source: "dbo.v_InvoiceLines"`) may fail during `POST` (Insert) operations if the view is not updatable or DAB cannot determine the primary key/schema correctly.
 **Solution**: For entities that require Write operations, point the `source` directly to the underlying Table (e.g., `source: "dbo.InvoiceLines"`) instead of a View, or ensure the View is properly configured with `INSTEAD OF` triggers (though direct Table access is simpler for DAB).
+
+## Retrospective: Journal Entry Debugging (Efficiency Improvements)
+**What went wrong (The "Gyrations"):**
+1.  **API Endpoint Naming**: Wasted time debugging 404s because the frontend used `/journal-entries` (hyphenated) while DAB auto-generated `/journalentries` (non-hyphenated). **Lesson**: Always verify the exact DAB endpoint name in `dab-config.json` or via `Invoke-RestMethod` *before* writing frontend code.
+2.  **Schema Assumptions**: Assumed frontend interfaces matched DB columns, then assumed they didn't, leading to unnecessary reverts. **Lesson**: Check `sp_help` or `SELECT TOP 1` immediately when a field mismatch is suspected.
+3.  **Data Type Mismatches**: Failed to anticipate that `AccountId` input would be a "Code" (string) while the DB expected a GUID. This caused the creation test to fail late in the process. **Lesson**: For foreign keys, always check if the UI input matches the DB type (GUID vs String) and plan for lookups if they differ.
+4.  **Missing Entities**: `journalentrylines` was missing from DAB config, causing silent failures/404s. **Lesson**: Verify all required entities (parents and children) exist in `dab-config.json` before starting implementation.
