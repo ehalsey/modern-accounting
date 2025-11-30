@@ -1,0 +1,5 @@
+Date,Bank,Account,Description,Amount,Type,Category,Receipt,Notes,Income streams,Ungrouped
+01/01/2023,Chase,Checking,Business Expense 1,-100.00,Business,Office Supplies,,,Note 1,,
+01/02/2023,Chase,Checking,Personal Expense 1,-50.00,Personal,Groceries,,,Personal Note,,
+01/03/2023,Chase,Checking,Business Income 1,500.00,Business,Sales,,,Sale 1,,
+01/04/2023,Chase,Checking,Personal Income 1,200.00,Personal,Gift,,,Gift,,

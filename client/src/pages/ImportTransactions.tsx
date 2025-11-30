@@ -54,8 +54,8 @@ export default function ImportTransactions() {
   };
 
   const handleImport = async () => {
-    if (!selectedFile || !sourceAccountId) {
-      alert('Please select both a file and source account');
+    if (!selectedFile) {
+      alert('Please select a file');
       return;
     }
 
@@ -89,24 +89,45 @@ export default function ImportTransactions() {
     }
   };
 
-  const getConfidenceColor = (score: number) => {
-    if (score >= 80) return 'text-green-600 bg-green-50';
-    if (score >= 60) return 'text-yellow-600 bg-yellow-50';
-    return 'text-red-600 bg-red-50';
+  const handleResetDb = async () => {
+    if (!confirm('Are you sure you want to delete ALL transactions? This cannot be undone.')) return;
+    
+    try {
+      const response = await fetch('http://localhost:7072/api/reset-db', {
+        method: 'POST'
+      });
+      
+      if (response.ok) {
+        alert('Database reset successfully');
+        setImportedTransactions([]);
+      } else {
+        alert('Failed to reset database');
+      }
+    } catch (err) {
+      console.error('Reset error:', err);
+      alert('Failed to reset database');
+    }
   };
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Import Transactions</h1>
-        <p className="mt-2 text-sm text-gray-600">
-          Upload bank or credit card CSV files with AI-powered categorization
-        </p>
+      <div className="mb-8 flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Import Transactions</h1>
+          <p className="mt-2 text-sm text-gray-600">
+            Upload CSV files from your bank to import transactions
+          </p>
+        </div>
+        <button
+            onClick={handleResetDb}
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-red-700 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+        >
+            Reset Database
+        </button>
       </div>
 
       <div className="bg-white shadow rounded-lg p-6 mb-8">
         <h2 className="text-lg font-medium text-gray-900 mb-4">Step 1: Select Source Account</h2>
-        
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Account Type</label>
@@ -128,7 +149,7 @@ export default function ImportTransactions() {
                 onChange={(e) => setSourceAccountId(e.target.value)}
                 className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
               >
-                <option value="">Select account...</option>
+                <option value="">Auto-detect from CSV (QBSE only)</option>
                 {accounts
                   .filter(acc => sourceType === 'Bank' ? acc.Type !== 'Credit Card' : acc.Type === 'Credit Card')
                   .map(acc => (
@@ -176,7 +197,7 @@ export default function ImportTransactions() {
         <div className="mt-6">
           <button
             onClick={handleImport}
-            disabled={!selectedFile || !sourceAccountId || importing}
+            disabled={!selectedFile || importing}
             className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-gray-300"
           >
             {importing ? 'Importing & Categorizing...' : 'Import & Categorize with AI'}

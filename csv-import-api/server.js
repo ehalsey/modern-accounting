@@ -30,13 +30,35 @@ try {
     const qbCsv = fs.readFileSync(qbDataPath, 'utf-8');
     parse(qbCsv, { columns: true }, (err, records) => {
         if (!err) {
-            trainingData = records.filter(r => r.Category && r.Category !== 'Unreviewed');
+            // Filter out empty rows or invalid data
+            trainingData = records.filter(r => r.Category && r.Category !== 'Unreviewed' && r.Description);
             console.log(`Loaded ${trainingData.length} training transactions from QuickBooks`);
         }
     });
 } catch (e) {
     console.log('QuickBooks training data not found, continuing without it');
 }
+
+// Reset Database Endpoint
+app.post('/api/reset-db', async (req, res) => {
+    try {
+        await sql.connect(process.env.DB_CONNECTION_STRING);
+
+        // Delete in correct order to avoid FK constraints
+        await sql.query`DELETE FROM JournalEntryLines`;
+        await sql.query`DELETE FROM JournalEntries`;
+        await sql.query`DELETE FROM BankTransactions`;
+        await sql.query`DELETE FROM InvoiceLines`;
+        await sql.query`DELETE FROM Invoices`;
+
+        res.json({ success: true, message: 'Database reset successfully' });
+    } catch (error) {
+        console.error('Reset error:', error);
+        res.status(500).json({ error: 'Failed to reset database' });
+    } finally {
+        await sql.close();
+    }
+});
 
 // Detect CSV format
 function detectFormat(firstLine, hasHeader) {
@@ -48,6 +70,9 @@ function detectFormat(firstLine, hasHeader) {
         }
         if (headers.includes('type') && headers.includes('memo')) {
             return 'chase';
+        }
+        if (headers.includes('date') && headers.includes('bank') && headers.includes('account') && headers.includes('income streams')) {
+            return 'qbse';
         }
     }
     return 'unknown';
@@ -83,6 +108,18 @@ function parseTransaction(row, format) {
                 description: row[3],
                 originalCategory: row[4],
                 amount: credit > 0 ? credit : -debit,
+                rawLine: row.join(',')
+            };
+        case 'qbse':
+            // Date,Bank,Account,Description,Amount,Type,Category,Receipt,Notes,Income streams,Ungrouped
+            // Type is 'Business' or 'Personal'
+            return {
+                transactionDate: row[0],
+                amount: parseFloat(row[4]),
+                description: row[3],
+                isPersonal: row[5] === 'Personal',
+                category: row[6],
+                notes: row[8],
                 rawLine: row.join(',')
             };
         default:
@@ -171,8 +208,8 @@ app.post('/api/import-csv', upload.single('file'), async (req, res) => {
         const accountsResponse = await axios.get(`${DAB_API_URL}/accounts`);
         const accounts = accountsResponse.data.value || [];
 
-        const sourceAccount = accounts.find(a => a.Id === sourceAccountId);
-        if (!sourceAccount) {
+        const sourceAccount = sourceAccountId ? accounts.find(a => a.Id === sourceAccountId) : null;
+        if (sourceAccountId && !sourceAccount) {
             return res.status(400).json({ error: 'Source account not found' });
         }
 
@@ -203,103 +240,125 @@ app.post('/api/import-csv', upload.single('file'), async (req, res) => {
             transactionsToProcess.push(records[i]);
         }
 
+        await sql.connect(process.env.DB_CONNECTION_STRING);
+
         const transactions = await Promise.all(transactionsToProcess.map(async (record) => {
             const parsed = parseTransaction(record, format);
 
-            const categorization = await categorizeTransaction(
-                parsed,
-                accounts,
-                { type: sourceType, name: sourceName }
-            );
-
-            const suggestedAccount = accounts.find(a => a.Name === categorization.accountName);
-
-            return {
-                SourceType: sourceType,
-                SourceName: sourceName,
-                SourceAccountId: sourceAccountId,
-                TransactionDate: parsed.transactionDate,
-                PostDate: parsed.postDate || null,
-                Amount: parsed.amount,
-                Description: parsed.description,
-                Merchant: parsed.description.substring(0, 200),
-                OriginalCategory: parsed.originalCategory || null,
+            OriginalCategory: parsed.originalCategory || null,
                 TransactionType: parsed.transactionType || null,
-                CardNumber: parsed.cardNumber || null,
-                RawCSVLine: parsed.rawLine,
-                SuggestedAccountId: suggestedAccount?.Id || null,
-                SuggestedCategory: categorization.category,
-                SuggestedMemo: categorization.memo,
-                ConfidenceScore: categorization.confidence,
-                Status: 'Pending'
-            };
-        }));
+                    CardNumber: parsed.cardNumber || null,
+                        RawCSVLine: parsed.rawLine,
+                            SuggestedAccountId: accountId,
+                                SuggestedCategory: category,
+                                    SuggestedMemo: parsed.notes || parsed.description,
+                                        ConfidenceScore: 100, // Manual/Imported
+                                            Status: 'Approved',
+                                                IsPersonal: isPersonal ? 1 : 0,
+                                                    ApprovedAccountId: accountId,
+                                                        ApprovedCategory: category,
+                                                            ApprovedMemo: parsed.notes || parsed.description
+        };
+    }
 
-        // Save to Database
-        await sql.connect(process.env.DB_CONNECTION_STRING);
-        const transaction = new sql.Transaction();
-        await transaction.begin();
+            const categorization = await categorizeTransaction(
+        parsed,
+        accounts,
+        { type: sourceType, name: sourceName }
+    );
 
-        try {
-            for (const txn of transactions) {
-                const request = new sql.Request(transaction);
-                request.input('Id', sql.UniqueIdentifier, crypto.randomUUID());
-                request.input('SourceType', sql.NVarChar, txn.SourceType);
-                request.input('BankName', sql.NVarChar, txn.SourceName);
-                request.input('SourceAccountId', sql.UniqueIdentifier, txn.SourceAccountId);
-                request.input('TransactionDate', sql.DateTime2, txn.TransactionDate);
-                request.input('PostDate', sql.DateTime2, txn.PostDate);
-                request.input('Amount', sql.Decimal(19, 4), txn.Amount);
-                request.input('Description', sql.NVarChar, txn.Description);
-                request.input('Merchant', sql.NVarChar, txn.Merchant);
-                request.input('OriginalCategory', sql.NVarChar, txn.OriginalCategory);
-                request.input('TransactionType', sql.NVarChar, txn.TransactionType);
-                request.input('CardNumber', sql.NVarChar, txn.CardNumber);
-                request.input('RawCSVLine', sql.NVarChar, txn.RawCSVLine);
-                request.input('SuggestedAccountId', sql.UniqueIdentifier, txn.SuggestedAccountId);
-                request.input('SuggestedCategory', sql.NVarChar, txn.SuggestedCategory);
-                request.input('SuggestedMemo', sql.NVarChar, txn.SuggestedMemo);
-                request.input('ConfidenceScore', sql.Decimal(5, 2), txn.ConfidenceScore);
-                request.input('Status', sql.NVarChar, txn.Status);
-                request.input('CreatedDate', sql.DateTime2, new Date());
+    const suggestedAccount = accounts.find(a => a.Name === categorization.accountName);
 
-                await request.query(`
+    return {
+        SourceType: sourceType,
+        SourceName: sourceName,
+        SourceAccountId: sourceAccountId,
+        TransactionDate: parsed.transactionDate,
+        PostDate: parsed.postDate || null,
+        Amount: parsed.amount,
+        Description: parsed.description,
+        Merchant: parsed.description.substring(0, 200),
+        OriginalCategory: parsed.originalCategory || null,
+        TransactionType: parsed.transactionType || null,
+        CardNumber: parsed.cardNumber || null,
+        RawCSVLine: parsed.rawLine,
+        SuggestedAccountId: suggestedAccount?.Id || null,
+        SuggestedCategory: categorization.category,
+        SuggestedMemo: categorization.memo,
+        ConfidenceScore: categorization.confidence,
+        Status: 'Pending',
+        IsPersonal: parsed.isPersonal ? 1 : 0,
+        ApprovedCategory: null,
+        ApprovedMemo: null
+    };
+}));
+
+const transaction = new sql.Transaction();
+await transaction.begin();
+
+try {
+    for (const txn of transactions) {
+        const request = new sql.Request(transaction);
+        request.input('Id', sql.UniqueIdentifier, crypto.randomUUID());
+        request.input('SourceType', sql.NVarChar, txn.SourceType);
+        request.input('BankName', sql.NVarChar, txn.SourceName);
+        request.input('SourceAccountId', sql.UniqueIdentifier, txn.SourceAccountId);
+        request.input('TransactionDate', sql.DateTime2, txn.TransactionDate);
+        request.input('PostDate', sql.DateTime2, txn.PostDate);
+        request.input('Amount', sql.Decimal(19, 4), txn.Amount);
+        request.input('Description', sql.NVarChar, txn.Description);
+        request.input('Merchant', sql.NVarChar, txn.Merchant);
+        request.input('OriginalCategory', sql.NVarChar, txn.OriginalCategory);
+        request.input('TransactionType', sql.NVarChar, txn.TransactionType);
+        request.input('CardNumber', sql.NVarChar, txn.CardNumber);
+        request.input('RawCSVLine', sql.NVarChar, txn.RawCSVLine);
+        request.input('SuggestedAccountId', sql.UniqueIdentifier, txn.SuggestedAccountId);
+        request.input('SuggestedCategory', sql.NVarChar, txn.SuggestedCategory);
+        request.input('SuggestedMemo', sql.NVarChar, txn.SuggestedMemo);
+        request.input('ConfidenceScore', sql.Decimal(5, 2), txn.ConfidenceScore);
+        request.input('Status', sql.NVarChar, txn.Status);
+        request.input('CreatedDate', sql.DateTime2, new Date());
+        request.input('IsPersonal', sql.Bit, txn.IsPersonal);
+        request.input('ApprovedCategory', sql.NVarChar, txn.ApprovedCategory);
+        request.input('ApprovedMemo', sql.NVarChar, txn.ApprovedMemo);
+
+        await request.query(`
                     INSERT INTO BankTransactions (
                         Id, SourceType, BankName, SourceAccountId, TransactionDate, PostDate, 
                         Amount, Description, Merchant, OriginalCategory, TransactionType, CardNumber, 
                         RawCSVLine, SuggestedAccountId, SuggestedCategory, SuggestedMemo, ConfidenceScore, 
-                        Status, CreatedDate
+                        Status, CreatedDate, IsPersonal, ApprovedCategory, ApprovedMemo
                     ) VALUES (
                         @Id, @SourceType, @BankName, @SourceAccountId, @TransactionDate, @PostDate, 
                         @Amount, @Description, @Merchant, @OriginalCategory, @TransactionType, @CardNumber, 
                         @RawCSVLine, @SuggestedAccountId, @SuggestedCategory, @SuggestedMemo, @ConfidenceScore, 
-                        @Status, @CreatedDate
+                        @Status, @CreatedDate, @IsPersonal, @ApprovedCategory, @ApprovedMemo
                     )
                 `);
-            }
-            await transaction.commit();
-        } catch (err) {
-            await transaction.rollback();
-            throw err;
-        } finally {
-            await sql.close();
-        }
+    }
+    await transaction.commit();
+} catch (err) {
+    await transaction.rollback();
+    throw err;
+} finally {
+    await sql.close();
+}
 
-        res.json({
-            success: true,
-            count: transactions.length,
-            format,
-            trainingDataCount: trainingData.length,
-            transactions
-        });
+res.json({
+    success: true,
+    count: transactions.length,
+    format,
+    trainingDataCount: trainingData.length,
+    transactions
+});
 
     } catch (error) {
-        console.error('Import error:', error);
-        res.status(500).json({
-            error: 'Import failed',
-            details: error.message
-        });
-    }
+    console.error('Import error:', error);
+    res.status(500).json({
+        error: 'Import failed',
+        details: error.message
+    });
+}
 });
 
 // Post transactions to journal
@@ -337,14 +396,41 @@ app.post('/api/post-transactions', async (req, res) => {
                 let debitAccountId, creditAccountId, amount;
                 const absAmount = Math.abs(txn.Amount);
 
-                if (txn.Amount < 0) {
-                    // Expense
-                    debitAccountId = txn.ApprovedAccountId || txn.SuggestedAccountId;
-                    creditAccountId = txn.SourceAccountId;
+                if (txn.IsPersonal) {
+                    // Personal Transaction Logic
+                    // Expense: Debit Owner's Draw, Credit Source
+                    // Income: Debit Source, Credit Owner's Contribution
+
+                    // We need to find the Equity accounts
+                    const equityAccounts = await new sql.Request(transaction).query`SELECT * FROM Accounts WHERE Type = 'Equity'`;
+                    const ownersDraw = equityAccounts.recordset.find(a => a.Name === "Owner's Draw");
+                    const ownersContrib = equityAccounts.recordset.find(a => a.Name === "Owner's Contribution");
+
+                    if (!ownersDraw || !ownersContrib) {
+                        throw new Error("Owner's Equity accounts not found");
+                    }
+
+                    if (txn.Amount < 0) {
+                        // Personal Expense
+                        debitAccountId = ownersDraw.Id;
+                        creditAccountId = txn.SourceAccountId;
+                    } else {
+                        // Personal Income/Deposit
+                        debitAccountId = txn.SourceAccountId;
+                        creditAccountId = ownersContrib.Id;
+                    }
+
                 } else {
-                    // Income/Payment
-                    debitAccountId = txn.SourceAccountId;
-                    creditAccountId = txn.ApprovedAccountId || txn.SuggestedAccountId;
+                    // Business Transaction Logic
+                    if (txn.Amount < 0) {
+                        // Expense
+                        debitAccountId = txn.ApprovedAccountId || txn.SuggestedAccountId;
+                        creditAccountId = txn.SourceAccountId;
+                    } else {
+                        // Income/Payment
+                        debitAccountId = txn.SourceAccountId;
+                        creditAccountId = txn.ApprovedAccountId || txn.SuggestedAccountId;
+                    }
                 }
 
                 if (!debitAccountId || !creditAccountId) {

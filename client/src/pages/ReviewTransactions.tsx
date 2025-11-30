@@ -7,6 +7,7 @@ interface BankTransaction {
   SourceType: string;
   SourceName: string;
   SourceAccountId: string;
+
   TransactionDate: string;
   Amount: number;
   Description: string;
@@ -21,6 +22,7 @@ interface BankTransaction {
   ApprovedCategory?: string;
   ApprovedMemo?: string;
   JournalEntryId?: string;
+  IsPersonal: boolean;
 }
 
 interface Account {
@@ -34,7 +36,7 @@ export default function ReviewTransactions() {
   const [confidenceFilter, setConfidenceFilter] = useState<string>('all');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<{ accountId: string; memo: string }>({ accountId: '', memo: '' });
+  const [editForm, setEditForm] = useState<{ accountId: string; memo: string; isPersonal: boolean }>({ accountId: '', memo: '', isPersonal: false });
 
   const queryClient = useQueryClient();
 
@@ -141,7 +143,8 @@ export default function ReviewTransactions() {
     setEditingId(txn.Id);
     setEditForm({
       accountId: txn.SuggestedAccountId || '',
-      memo: txn.SuggestedMemo
+      memo: txn.SuggestedMemo,
+      isPersonal: txn.IsPersonal
     });
   };
 
@@ -153,7 +156,8 @@ export default function ReviewTransactions() {
         SuggestedMemo: editForm.memo,
         Status: 'Approved',
         ApprovedAccountId: editForm.accountId,
-        ApprovedMemo: editForm.memo
+        ApprovedMemo: editForm.memo,
+        IsPersonal: editForm.isPersonal
       }
     });
   };
@@ -378,9 +382,16 @@ export default function ReviewTransactions() {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
-                      <span className={txn.Amount < 0 ? 'text-red-600 font-medium' : 'text-green-600 font-medium'}>
-                        ${Math.abs(txn.Amount).toFixed(2)}
-                      </span>
+                      <div className="flex flex-col items-end">
+                        <span className={txn.Amount < 0 ? 'text-red-600 font-medium' : 'text-green-600 font-medium'}>
+                          ${Math.abs(txn.Amount).toFixed(2)}
+                        </span>
+                        {txn.IsPersonal && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 mt-1">
+                            Personal
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-sm">
                       {editingId === txn.Id ? (
@@ -402,6 +413,18 @@ export default function ReviewTransactions() {
                             className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
                             placeholder="Memo"
                           />
+                          <div className="mt-2 flex items-center">
+                            <input
+                                type="checkbox"
+                                id={`personal-${txn.Id}`}
+                                checked={editForm.isPersonal}
+                                onChange={(e) => setEditForm({ ...editForm, isPersonal: e.target.checked })}
+                                className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                            />
+                            <label htmlFor={`personal-${txn.Id}`} className="ml-2 block text-sm text-gray-900">
+                                Personal Transaction
+                            </label>
+                          </div>
                         </div>
                       ) : (
                         <div>

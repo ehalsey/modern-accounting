@@ -77,7 +77,8 @@
                 "ApprovedCategory": "ApprovedCategory",
                 "ApprovedMemo": "ApprovedMemo",
                 "JournalEntryId": "JournalEntryId",
-                "CreatedDate": "CreatedDate"
+                "CreatedDate": "CreatedDate",
+                "IsPersonal": "IsPersonal"
             },
             "relationships": {
                 "SourceAccount": {
